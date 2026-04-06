@@ -8,6 +8,8 @@ Run with:  python -m streamlit run lab_inventory.py
 import sqlite3
 import io
 import os
+import hashlib
+import secrets
 from datetime import date
 
 import pandas as pd
@@ -71,6 +73,14 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE TABLE IF NOT EXISTS categories (
     category_id   INTEGER PRIMARY KEY AUTOINCREMENT,
     category_name TEXT    NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS login_accounts (
+    account_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT    NOT NULL UNIQUE,
+    password_hash TEXT    NOT NULL,
+    salt          TEXT    NOT NULL,
+    role          TEXT    NOT NULL DEFAULT 'viewer' CHECK(role IN ('admin', 'viewer'))
 );
 
 CREATE TABLE IF NOT EXISTS items (
@@ -244,6 +254,18 @@ def migrate_db() -> None:
             PRAGMA foreign_keys = ON;
         """)
 
+    # ── 3. Create login_accounts table if missing ─────────────────────────
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS login_accounts (
+            account_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+            username      TEXT    NOT NULL UNIQUE,
+            password_hash TEXT    NOT NULL,
+            salt          TEXT    NOT NULL,
+            role          TEXT    NOT NULL DEFAULT 'viewer'
+                          CHECK(role IN ('admin', 'viewer'))
+        )
+    """)
+    conn.commit()
     conn.close()
 
 
@@ -267,6 +289,45 @@ def initialize_db() -> None:
     conn.commit()
     conn.close()
     migrate_db()
+    _seed_admin_account()
+
+
+# ── Auth helpers ─────────────────────────────────────────────────────────────
+
+def _hash_password(password: str, salt: str) -> str:
+    """Return a hex PBKDF2-SHA256 hash of password+salt."""
+    return hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), salt.encode(), 260_000
+    ).hex()
+
+
+def _verify_password(password: str, salt: str, stored_hash: str) -> bool:
+    return secrets.compare_digest(_hash_password(password, salt), stored_hash)
+
+
+def _seed_admin_account() -> None:
+    """Insert a default admin account if no accounts exist yet."""
+    conn = get_connection()
+    count = conn.execute("SELECT COUNT(*) FROM login_accounts").fetchone()[0]
+    if count == 0:
+        salt = secrets.token_hex(16)
+        pw_hash = _hash_password("admin", salt)
+        conn.execute(
+            "INSERT INTO login_accounts (username, password_hash, salt, role) VALUES (?,?,?,?)",
+            ("admin", pw_hash, salt, "admin"),
+        )
+        conn.commit()
+    conn.close()
+
+
+def _get_account(username: str):
+    """Return the login_accounts row for username, or None."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM login_accounts WHERE username=?", (username,)
+    ).fetchone()
+    conn.close()
+    return row
 
 
 # ── ID generation ─────────────────────────────────────────────────────────────
@@ -1570,6 +1631,121 @@ def page_manage() -> None:
                     conn.close()
 
 
+# ── Login page ───────────────────────────────────────────────────────────────
+
+def page_login() -> None:
+    st.title("Lab Inventory — Login")
+    st.markdown("Please sign in to continue.")
+
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Sign In", type="primary")
+
+    if submitted:
+        if not username.strip() or not password:
+            st.error("Username and password are required.")
+            return
+        row = _get_account(username.strip())
+        if row and _verify_password(password, row["salt"], row["password_hash"]):
+            st.session_state["authenticated"] = True
+            st.session_state["auth_username"] = row["username"]
+            st.session_state["auth_role"] = row["role"]
+            st.rerun()
+        else:
+            st.error("Invalid username or password.")
+
+
+def page_manage_accounts() -> None:
+    st.title("Manage Login Accounts")
+
+    conn = get_connection()
+    accounts = pd.read_sql_query(
+        "SELECT account_id AS ID, username AS Username, role AS Role FROM login_accounts ORDER BY username",
+        conn,
+    )
+    conn.close()
+
+    st.dataframe(accounts, use_container_width=True, hide_index=True)
+    st.divider()
+
+    # ── Add account ────────────────────────────────────────────────────────
+    st.subheader("Add Account")
+    with st.form("add_account"):
+        new_user = st.text_input("Username *")
+        new_pass = st.text_input("Password *", type="password")
+        new_pass2 = st.text_input("Confirm Password *", type="password")
+        new_role = st.selectbox("Role", ["viewer", "admin"])
+        if st.form_submit_button("Create Account"):
+            if not new_user.strip() or not new_pass:
+                st.error("Username and password are required.")
+            elif new_pass != new_pass2:
+                st.error("Passwords do not match.")
+            else:
+                salt = secrets.token_hex(16)
+                pw_hash = _hash_password(new_pass, salt)
+                conn = get_connection()
+                try:
+                    conn.execute(
+                        "INSERT INTO login_accounts (username, password_hash, salt, role) VALUES (?,?,?,?)",
+                        (new_user.strip(), pw_hash, salt, new_role),
+                    )
+                    conn.commit()
+                    st.success(f"Account '{new_user.strip()}' created.")
+                    st.rerun()
+                except sqlite3.IntegrityError:
+                    st.error("A user with that username already exists.")
+                finally:
+                    conn.close()
+
+    st.divider()
+
+    # ── Change password ────────────────────────────────────────────────────
+    st.subheader("Change Password")
+    with st.form("change_password"):
+        target_user = st.text_input("Username to update *")
+        chg_pass = st.text_input("New Password *", type="password")
+        chg_pass2 = st.text_input("Confirm New Password *", type="password")
+        if st.form_submit_button("Update Password"):
+            if not target_user.strip() or not chg_pass:
+                st.error("Username and password are required.")
+            elif chg_pass != chg_pass2:
+                st.error("Passwords do not match.")
+            else:
+                salt = secrets.token_hex(16)
+                pw_hash = _hash_password(chg_pass, salt)
+                conn = get_connection()
+                cur = conn.execute(
+                    "UPDATE login_accounts SET password_hash=?, salt=? WHERE username=?",
+                    (pw_hash, salt, target_user.strip()),
+                )
+                conn.commit()
+                conn.close()
+                if cur.rowcount:
+                    st.success(f"Password updated for '{target_user.strip()}'.")
+                else:
+                    st.error("Username not found.")
+
+    st.divider()
+
+    # ── Delete account ─────────────────────────────────────────────────────
+    st.subheader("Delete Account")
+    if not accounts.empty:
+        del_user = st.selectbox("Select account to delete", accounts["Username"].tolist(), key="del_acct")
+        confirm_del = st.checkbox(f"I confirm I want to delete **{del_user}**", key="del_acct_chk")
+        if st.button("Delete Account", type="primary", disabled=not confirm_del):
+            current = st.session_state.get("auth_username", "")
+            if del_user == current:
+                st.error("You cannot delete your own account.")
+            else:
+                conn = get_connection()
+                conn.execute("DELETE FROM login_accounts WHERE username=?", (del_user,))
+                conn.commit()
+                conn.close()
+                st.success(f"Account '{del_user}' deleted.")
+                st.rerun()
+
+
 # ── App entry point ───────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -1582,18 +1758,34 @@ def main() -> None:
 
     initialize_db()
 
-    pages = {
+    # ── Authentication gate ───────────────────────────────────────────────
+    if not st.session_state.get("authenticated"):
+        page_login()
+        return
+
+    role = st.session_state.get("auth_role", "viewer")
+    username = st.session_state.get("auth_username", "")
+
+    # Read-only pages available to all roles
+    viewer_pages = {
         "Dashboard":         page_dashboard,
         "All Items":         page_all_items,
-        "Add New Item":      page_add_item,
-        "Edit Item":         page_edit_item,
-        "Bulk Delete":       page_bulk_delete,
-        "Check-Out / In":    page_checkout,
-        "Import Excel":      page_import_excel,
         "View by Project":   page_view_by_project,
         "View by Category":  page_view_by_category,
-        "Manage Lookups":    page_manage,
     }
+
+    # Write pages available to admins only
+    admin_pages = {
+        "Add New Item":      page_add_item,
+        "Edit Item":         page_edit_item,
+        "Check-Out / In":    page_checkout,
+        "Import Excel":      page_import_excel,
+        "Bulk Delete":       page_bulk_delete,
+        "Manage Lookups":    page_manage,
+        "Manage Accounts":   page_manage_accounts,
+    }
+
+    pages = viewer_pages if role == "viewer" else {**viewer_pages, **admin_pages}
 
     st.sidebar.title("Lab Inventory")
     st.sidebar.caption("Local SQLite · Streamlit UI")
@@ -1601,7 +1793,11 @@ def main() -> None:
 
     selection = st.sidebar.radio("Navigate", list(pages.keys()), label_visibility="collapsed")
     st.sidebar.divider()
+    st.sidebar.caption(f"Signed in as **{username}** ({role})")
     st.sidebar.caption(f"DB: `{os.path.basename(DB_PATH)}`")
+    if st.sidebar.button("Logout"):
+        st.session_state.clear()
+        st.rerun()
 
     pages[selection]()
 
