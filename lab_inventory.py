@@ -165,9 +165,8 @@ def _get_github_config():
 
 
 def _pull_db_from_github() -> None:
-    """Download DB from GitHub if it doesn't exist locally (fresh container after redeploy)."""
-    if os.path.exists(DB_PATH):
-        return
+    """Always pull the latest DB from GitHub at startup so runtime data is never lost.
+    The repo checkout always contains a stale DB; the live data lives in GitHub via the API."""
     cfg = _get_github_config()
     if not cfg:
         return
@@ -183,8 +182,9 @@ def _pull_db_from_github() -> None:
             with open(DB_PATH, "wb") as f:
                 f.write(base64.b64decode(data["content"]))
             st.session_state["_gh_db_sha"] = data["sha"]
+        # 404 → no DB on GitHub yet; initialize_db() will create a fresh one
     except Exception:
-        pass  # fall through — initialize_db() will create a fresh DB
+        pass  # network error — use whatever is on disk
 
 
 def _push_db_to_github() -> None:
