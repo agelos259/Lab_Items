@@ -10,6 +10,8 @@ import io
 import os
 import hashlib
 import secrets
+import base64
+import requests
 from datetime import date
 
 import pandas as pd
@@ -151,8 +153,91 @@ SEED_ITEMS = [
 ]
 
 
+def _get_github_config():
+    """Return (token, repo, filepath) from st.secrets, or None if not configured."""
+    try:
+        token = st.secrets["GITHUB_TOKEN"]
+        repo  = st.secrets["GITHUB_REPO"]        # e.g. "agelos259/Lab_Items"
+        path  = st.secrets.get("GITHUB_DB_PATH", "lab_inventory.db")
+        return token, repo, path
+    except Exception:
+        return None
+
+
+def _pull_db_from_github() -> None:
+    """Download DB from GitHub if it doesn't exist locally (fresh container after redeploy)."""
+    if os.path.exists(DB_PATH):
+        return
+    cfg = _get_github_config()
+    if not cfg:
+        return
+    token, repo, gh_path = cfg
+    try:
+        resp = requests.get(
+            f"https://api.github.com/repos/{repo}/contents/{gh_path}",
+            headers={"Authorization": f"token {token}"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            with open(DB_PATH, "wb") as f:
+                f.write(base64.b64decode(data["content"]))
+            st.session_state["_gh_db_sha"] = data["sha"]
+    except Exception:
+        pass  # fall through — initialize_db() will create a fresh DB
+
+
+def _push_db_to_github() -> None:
+    """Push the current DB file to GitHub after every commit."""
+    cfg = _get_github_config()
+    if not cfg:
+        return
+    token, repo, gh_path = cfg
+    try:
+        with open(DB_PATH, "rb") as f:
+            content = base64.b64encode(f.read()).decode()
+        sha = st.session_state.get("_gh_db_sha")
+        payload = {"message": "chore: sync database", "content": content}
+        if sha:
+            payload["sha"] = sha
+        resp = requests.put(
+            f"https://api.github.com/repos/{repo}/contents/{gh_path}",
+            headers={"Authorization": f"token {token}"},
+            json=payload,
+            timeout=15,
+        )
+        if resp.status_code in (200, 201):
+            st.session_state["_gh_db_sha"] = resp.json()["content"]["sha"]
+        elif resp.status_code == 409:
+            # SHA conflict — fetch the current SHA and retry once
+            r2 = requests.get(
+                f"https://api.github.com/repos/{repo}/contents/{gh_path}",
+                headers={"Authorization": f"token {token}"},
+                timeout=10,
+            )
+            if r2.status_code == 200:
+                payload["sha"] = r2.json()["sha"]
+                r3 = requests.put(
+                    f"https://api.github.com/repos/{repo}/contents/{gh_path}",
+                    headers={"Authorization": f"token {token}"},
+                    json=payload,
+                    timeout=15,
+                )
+                if r3.status_code in (200, 201):
+                    st.session_state["_gh_db_sha"] = r3.json()["content"]["sha"]
+    except Exception:
+        pass  # never let a sync failure break the app
+
+
+class _SyncedConnection(sqlite3.Connection):
+    """sqlite3.Connection subclass that pushes the DB to GitHub on every commit."""
+    def commit(self):
+        super().commit()
+        _push_db_to_github()
+
+
 def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, factory=_SyncedConnection)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
     return conn
@@ -1704,6 +1789,10 @@ def main() -> None:
         layout="wide",
         initial_sidebar_state="expanded",
     )
+
+    if not st.session_state.get("_db_pulled"):
+        _pull_db_from_github()
+        st.session_state["_db_pulled"] = True
 
     initialize_db()
 
