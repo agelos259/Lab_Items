@@ -1,0 +1,2 @@
+  cd "C:\Users\Άγγελος\Desktop\Lab Items"
+  python -m streamlit run lab_inventory.py
