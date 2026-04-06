@@ -165,64 +165,28 @@ def _get_github_config():
 
 
 
-def _fetch_github_sha() -> None:
-    """Fetch and cache the current SHA of the DB file on GitHub (needed to update it)."""
-    if st.session_state.get("_gh_db_sha"):
-        return  # already have it this session
-    cfg = _get_github_config()
-    if not cfg:
-        return
-    token, repo, gh_path = cfg
-    try:
-        resp = requests.get(
-            f"https://api.github.com/repos/{repo}/contents/{gh_path}",
-            headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"},
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            st.session_state["_gh_db_sha"] = resp.json()["sha"]
-    except Exception:
-        pass
-
-
 def _push_db_to_github() -> None:
-    """Push the current DB file to GitHub after every commit."""
+    """Push the current DB file to GitHub. Always fetches the current SHA first."""
     cfg = _get_github_config()
     if not cfg:
         return
     token, repo, gh_path = cfg
+    api_url = f"https://api.github.com/repos/{repo}/contents/{gh_path}"
+    headers = {"Authorization": f"token {token}"}
     try:
+        # Step 1: get current SHA (required by GitHub API to update an existing file)
+        sha = None
+        r = requests.get(api_url, headers=headers, timeout=10)
+        if r.status_code == 200:
+            sha = r.json()["sha"]
+
+        # Step 2: push the updated DB
         with open(DB_PATH, "rb") as f:
             content = base64.b64encode(f.read()).decode()
-        sha = st.session_state.get("_gh_db_sha")
         payload = {"message": "chore: sync database", "content": content}
         if sha:
             payload["sha"] = sha
-        resp = requests.put(
-            f"https://api.github.com/repos/{repo}/contents/{gh_path}",
-            headers={"Authorization": f"token {token}"},
-            json=payload,
-            timeout=15,
-        )
-        if resp.status_code in (200, 201):
-            st.session_state["_gh_db_sha"] = resp.json()["content"]["sha"]
-        elif resp.status_code == 409:
-            # SHA conflict — fetch the current SHA and retry once
-            r2 = requests.get(
-                f"https://api.github.com/repos/{repo}/contents/{gh_path}",
-                headers={"Authorization": f"token {token}"},
-                timeout=10,
-            )
-            if r2.status_code == 200:
-                payload["sha"] = r2.json()["sha"]
-                r3 = requests.put(
-                    f"https://api.github.com/repos/{repo}/contents/{gh_path}",
-                    headers={"Authorization": f"token {token}"},
-                    json=payload,
-                    timeout=15,
-                )
-                if r3.status_code in (200, 201):
-                    st.session_state["_gh_db_sha"] = r3.json()["content"]["sha"]
+        requests.put(api_url, headers=headers, json=payload, timeout=15)
     except Exception:
         pass  # never let a sync failure break the app
 
@@ -1789,7 +1753,6 @@ def main() -> None:
     )
 
     initialize_db()
-    _fetch_github_sha()
 
     # ── Authentication gate ───────────────────────────────────────────────
     if not st.session_state.get("authenticated"):
