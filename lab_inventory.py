@@ -164,9 +164,11 @@ def _get_github_config():
         return None
 
 
-def _pull_db_from_github() -> None:
-    """Always pull the latest DB from GitHub at startup so runtime data is never lost.
-    The repo checkout always contains a stale DB; the live data lives in GitHub via the API."""
+
+def _fetch_github_sha() -> None:
+    """Fetch and cache the current SHA of the DB file on GitHub (needed to update it)."""
+    if st.session_state.get("_gh_db_sha"):
+        return  # already have it this session
     cfg = _get_github_config()
     if not cfg:
         return
@@ -174,17 +176,13 @@ def _pull_db_from_github() -> None:
     try:
         resp = requests.get(
             f"https://api.github.com/repos/{repo}/contents/{gh_path}",
-            headers={"Authorization": f"token {token}"},
+            headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"},
             timeout=10,
         )
         if resp.status_code == 200:
-            data = resp.json()
-            with open(DB_PATH, "wb") as f:
-                f.write(base64.b64decode(data["content"]))
-            st.session_state["_gh_db_sha"] = data["sha"]
-        # 404 → no DB on GitHub yet; initialize_db() will create a fresh one
+            st.session_state["_gh_db_sha"] = resp.json()["sha"]
     except Exception:
-        pass  # network error — use whatever is on disk
+        pass
 
 
 def _push_db_to_github() -> None:
@@ -1790,11 +1788,8 @@ def main() -> None:
         initial_sidebar_state="expanded",
     )
 
-    if not st.session_state.get("_db_pulled"):
-        _pull_db_from_github()
-        st.session_state["_db_pulled"] = True
-
     initialize_db()
+    _fetch_github_sha()
 
     # ── Authentication gate ───────────────────────────────────────────────
     if not st.session_state.get("authenticated"):
