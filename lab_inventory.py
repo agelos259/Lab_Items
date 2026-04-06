@@ -1280,57 +1280,6 @@ def page_bulk_delete() -> None:
                            "bd_projs", "Project")
 
 
-def page_view_by_project() -> None:
-    st.title("View by Project")
-
-    projs = fetch_df(
-        "SELECT project_id, project_name, grant_code, status FROM projects ORDER BY project_name"
-    )
-    if projs.empty:
-        st.info("No projects found.")
-        return
-
-    proj_labels = [f"{r['project_name']} ({r['grant_code']}) [{r['status']}]"
-                   for _, r in projs.iterrows()]
-    choice   = st.selectbox("Select Project", proj_labels)
-    proj_idx = proj_labels.index(choice)
-    proj_id  = projs.iloc[proj_idx]["project_id"]
-
-    df = fetch_df(
-        ITEMS_FULL_QUERY + " WHERE i.project_id=? ORDER BY i.internal_id",
-        (proj_id,),
-    )
-    st.caption(f"{len(df)} item(s) in this project")
-
-    if df.empty:
-        st.info("No items assigned to this project.")
-    else:
-        cond_counts = df["Condition"].value_counts()
-        cols = st.columns(len(cond_counts))
-        for i, (cond, cnt) in enumerate(cond_counts.items()):
-            cols[i].metric(cond, cnt)
-        st.dataframe(df, use_container_width=True, hide_index=True)
-
-
-def page_view_by_category() -> None:
-    st.title("View by Category")
-
-    category = st.selectbox("Select Category", CATEGORIES)
-    df = fetch_df(
-        ITEMS_FULL_QUERY + " WHERE i.category=? ORDER BY i.internal_id",
-        (category,),
-    )
-    st.caption(f"{len(df)} item(s) in this category")
-
-    if df.empty:
-        st.info("No items in this category.")
-    else:
-        cond_counts = df["Condition"].value_counts()
-        cols = st.columns(len(cond_counts))
-        for i, (cond, cnt) in enumerate(cond_counts.items()):
-            cols[i].metric(cond, cnt)
-        st.dataframe(df, use_container_width=True, hide_index=True)
-
 
 def page_manage() -> None:
     st.title("Manage Lookups")
@@ -1770,8 +1719,6 @@ def main() -> None:
     viewer_pages = {
         "Dashboard":         page_dashboard,
         "All Items":         page_all_items,
-        "View by Project":   page_view_by_project,
-        "View by Category":  page_view_by_category,
     }
 
     # Write pages available to admins only
