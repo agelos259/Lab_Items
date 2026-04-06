@@ -1824,7 +1824,7 @@ def main() -> None:
     pages = viewer_pages if role == "viewer" else {**viewer_pages, **admin_pages}
 
     st.sidebar.title("Lab Inventory")
-    st.sidebar.caption("Local SQLite · Streamlit UI")
+    st.sidebar.caption("Local SQLite · Streamlit UI test")
     st.sidebar.divider()
 
     selection = st.sidebar.radio("Navigate", list(pages.keys()), label_visibility="collapsed")
