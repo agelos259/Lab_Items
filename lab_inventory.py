@@ -138,19 +138,6 @@ INSERT OR IGNORE INTO categories (category_name) VALUES
     ('Consumables');
 """
 
-SEED_ITEMS = [
-    # (name, cat, model, sn, qty, cond, received, proj_id, usr, loc_id)
-    ("Oscilloscope Rigol DS1054Z",  "Electronics/Sensors", "DS1054Z",    "SN-RGL-00441", 1, "Available",    "ΝΑΙ", 1, None, 1),
-    ("Dell Latitude Laptop",         "IT/Computing",        "Latitude 14","SN-DELL-7890", 1, "In Use",       "ΝΑΙ", 2,    4, 4),
-    ("Raspberry Pi 4 Kit",           "Electronics/Sensors", "RPi 4B 4GB", None,           3, "Available",    "ΝΑΙ", 1, None, 2),
-    ("Analytical Balance Mettler",   "Capital Equipment",   "ME204",      "SN-METT-2231", 1, "Available",    "ΝΑΙ", 2, None, 1),
-    ("pH Meter ProScan 1000",        "Electronics/Sensors", "ProScan1000","SN-PH-5512",   1, "In Use",       "ΝΑΙ", 3,    2, 4),
-    ("Soldering Station Hakko FX",   "Tools/Hardware",      "FX-951",     None,           1, "Available",    "ΝΑΙ", 4, None, 2),
-    ("NAS Server Synology DS920+",   "IT/Computing",        "DS920+",     "SN-SYN-DS920", 1, "In Use",       "ΝΑΙ", 4,    3, 5),
-    ("Microscope Olympus BX53",      "Capital Equipment",   "BX53",       "SN-OLY-BX53",  1, "Needs Repair", "ΝΑΙ", 2, None, 1),
-    ("Pipette Set 8-channel",        "Consumables",         "Pipetman G", None,           2, "Available",    "ΝΑΙ", 2, None, 3),
-    ("Arduino Mega Pack",            "Electronics/Sensors", "Mega 2560",  None,           5, "In Use",       "ΝΑΙ", 1,    1, 4),
-]
 
 
 def _get_github_config():
@@ -320,18 +307,10 @@ def initialize_db() -> None:
     conn = get_connection()
     conn.executescript(SCHEMA_SQL)
 
-    # Only seed when the database is brand new (all lookup tables empty)
+    # Only seed lookup tables when the database is brand new
     is_fresh = conn.execute("SELECT COUNT(*) FROM locations").fetchone()[0] == 0
     if is_fresh:
         conn.executescript(SEED_SQL)
-        for i, (name, cat, model, sn, qty, cond, recv, proj, usr, loc) in enumerate(SEED_ITEMS, 1):
-            conn.execute(
-                """INSERT OR IGNORE INTO items
-                   (internal_id, item_name, category, model, manufacturer_sn, quantity,
-                    condition, received, project_id, user_id, location_id)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                (f"LAB-{i:03d}", name, cat, model, sn, qty, cond, recv, proj, usr, loc),
-            )
 
     conn.commit()
     conn.close()
