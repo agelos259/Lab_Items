@@ -5,7 +5,7 @@ import pandas as pd
 import streamlit as st
 import psycopg2
 
-from config import CATEGORIES, CONDITIONS, EXCEL_COL_MAP
+from config import CONDITIONS, EXCEL_COL_MAP
 from db import get_connection
 from queries import fetch_lookup, get_next_lab_id, get_or_create_location, get_or_create_category
 
@@ -94,13 +94,10 @@ def page_import_excel() -> None:
     st.success(f"Parsed **{len(df)} rows** → will create **{total_instances} individual items**.")
     st.divider()
 
-    st.subheader("Step 3 — Set Defaults")
-    col_b, col_c = st.columns(2)
-    default_cat  = col_b.selectbox("Fallback Category", CATEGORIES)
-    default_cond = col_c.selectbox("Default Condition *", CONDITIONS, index=0)
-    st.divider()
+    default_cat  = None
+    default_cond = CONDITIONS[0]
 
-    st.subheader("Step 4 — Preview")
+    st.subheader("Step 3 — Preview")
     preview_cols = [c for c in [
         "excel_category", "item_name", "quantity", "manufacturer_sn",
         "received", "location_name",
@@ -117,7 +114,7 @@ def page_import_excel() -> None:
         st.caption(f"Showing 20 of {len(df)} rows.")
     st.divider()
 
-    st.subheader("Step 5 — Import")
+    st.subheader("Step 4 — Import")
     st.markdown(f"Ready to create **{total_instances} items** into project **{proj_label}**.")
 
     if st.button("Import All Rows into Database", type="primary"):
