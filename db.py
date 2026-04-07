@@ -93,6 +93,9 @@ class DBConn:
     """
 
     def __init__(self, dsn: str):
+        # Supabase (and most hosted PostgreSQL) require SSL
+        if "sslmode" not in dsn:
+            dsn += ("&" if "?" in dsn else "?") + "sslmode=require"
         self._conn = psycopg2.connect(dsn)
         self._conn.autocommit = False
 
