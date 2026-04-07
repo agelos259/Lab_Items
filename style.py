@@ -107,10 +107,12 @@ html, body, .stApp {{
 }}
 /* Sidebar logout button */
 [data-testid="stSidebar"] .stButton > button {{
-  background-color: transparent !important;
-  border: 1px solid rgba(110,193,228,0.6) !important;
+  background-color: #FFFFFF !important;
+  border: 1.5px solid var(--c-sky) !important;
   color: var(--c-sky) !important;
+  font-family: var(--font-primary) !important;
   font-size: 13px !important;
+  font-weight: 500 !important;
   padding: 6px 14px !important;
   width: 100%;
   margin-top: 2px;
@@ -166,45 +168,44 @@ p, li {{
 }}
 
 /* ── Buttons (main area) ─────────────────────────────────────────────────── */
-.main .stButton > button,
-[data-testid="stMainBlockContainer"] .stButton > button {{
-  font-family: var(--font-primary);
-  font-weight: 500;
-  font-size: 14px;
-  background-color: var(--c-sky);
-  color: #FFFFFF;
-  border: none;
-  border-radius: 4px;
-  padding: 8px 20px;
-  transition: background-color 0.18s ease;
-  box-shadow: none;
-}}
-.main .stButton > button:hover,
-[data-testid="stMainBlockContainer"] .stButton > button:hover {{
-  background-color: var(--c-steel);
-  color: #FFFFFF;
-  border: none;
-}}
-/* Primary buttons */
-.main .stButton > button[kind="primary"],
-[data-testid="stMainBlockContainer"] .stButton > button[kind="primary"] {{
-  background-color: var(--c-navy);
-  color: #FFFFFF;
-}}
-.main .stButton > button[kind="primary"]:hover,
-[data-testid="stMainBlockContainer"] .stButton > button[kind="primary"]:hover {{
-  background-color: var(--c-mid-blue);
-}}
-/* Secondary / outline buttons */
-.main .stButton > button[kind="secondary"],
-[data-testid="stMainBlockContainer"] .stButton > button[kind="secondary"] {{
-  background-color: transparent;
-  border: 1px solid var(--c-sky) !important;
+/* Base — all buttons start with an outline style */
+.stButton > button,
+[data-testid="baseButton-secondary"] {{
+  font-family: var(--font-primary) !important;
+  font-weight: 500 !important;
+  font-size: 14px !important;
+  background-color: #FFFFFF !important;
   color: var(--c-sky) !important;
+  border: 1.5px solid var(--c-sky) !important;
+  border-radius: 4px !important;
+  padding: 8px 20px !important;
+  transition: background-color 0.18s ease, color 0.18s ease !important;
+  box-shadow: none !important;
 }}
-.main .stButton > button[kind="secondary"]:hover,
-[data-testid="stMainBlockContainer"] .stButton > button[kind="secondary"]:hover {{
+.stButton > button:hover,
+[data-testid="baseButton-secondary"]:hover {{
   background-color: var(--c-sky) !important;
+  color: #FFFFFF !important;
+  border-color: var(--c-sky) !important;
+}}
+/* Primary buttons — filled sky blue */
+[data-testid="baseButton-primary"],
+button[kind="primaryFormSubmit"] {{
+  background-color: var(--c-sky) !important;
+  color: #FFFFFF !important;
+  border: 1.5px solid var(--c-sky) !important;
+  border-radius: 4px !important;
+  font-family: var(--font-primary) !important;
+  font-weight: 500 !important;
+  font-size: 14px !important;
+  padding: 8px 20px !important;
+  box-shadow: none !important;
+  transition: background-color 0.18s ease !important;
+}}
+[data-testid="baseButton-primary"]:hover,
+button[kind="primaryFormSubmit"]:hover {{
+  background-color: var(--c-mid-blue) !important;
+  border-color: var(--c-mid-blue) !important;
   color: #FFFFFF !important;
 }}
 
