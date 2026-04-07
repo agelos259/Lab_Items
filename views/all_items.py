@@ -42,9 +42,35 @@ def page_all_items() -> None:
     df = fetch_df(query, tuple(params))
     df = df.drop(columns=["Model", "Received", "Return Date"], errors="ignore")
 
-    for price_col in ("Unit (ex VAT)", "Unit (inc VAT)"):
+    for price_col in ("Unit (ex VAT)", "Unit (inc VAT)", "Total (ex VAT)", "Total (inc VAT)"):
         if price_col in df.columns:
             df[price_col] = pd.to_numeric(df[price_col].replace("—", None), errors="coerce")
+
+    group_by_name = st.toggle("Group by name", value=False)
+
+    if group_by_name:
+        def _join_unique(s):
+            vals = sorted({v for v in s if v and v != "—"})
+            return ", ".join(vals) if vals else "—"
+
+        grouped = (
+            df.groupby("Item Name", sort=False)
+            .agg(
+                Category   = ("Category",        "first"),
+                Count      = ("Item Name",        "count"),
+                Locations  = ("Location",         _join_unique),
+                Projects   = ("Project",          _join_unique),
+                Conditions = ("Condition",        _join_unique),
+                **({
+                    "Unit (ex VAT)":  ("Unit (ex VAT)",  "mean"),
+                    "Unit (inc VAT)": ("Unit (inc VAT)", "mean"),
+                } if "Unit (ex VAT)" in df.columns else {}),
+            )
+            .reset_index()
+        )
+        st.caption(f"{len(df)} item(s) grouped into **{len(grouped)} unique name(s)**.")
+        st.dataframe(grouped, use_container_width=True, hide_index=True)
+        return
 
     st.caption(
         f"{len(df)} item(s) — "
