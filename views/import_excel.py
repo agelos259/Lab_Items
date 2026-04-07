@@ -254,7 +254,13 @@ def page_import_excel() -> None:
                         inserted += 1
 
                 conn.execute(
-                    "INSERT INTO import_log (file_hash, file_name, imported_by, row_count) VALUES (?,?,?,?)",
+                    """INSERT INTO import_log (file_hash, file_name, imported_by, row_count)
+                       VALUES (?,?,?,?)
+                       ON CONFLICT (file_hash) DO UPDATE
+                         SET file_name   = EXCLUDED.file_name,
+                             imported_by = EXCLUDED.imported_by,
+                             imported_at = NOW(),
+                             row_count   = EXCLUDED.row_count""",
                     (_sheet_hash(file_bytes, sheet), f"{uploaded.name} [{sheet}]", username, inserted),
                 )
                 conn.commit()
