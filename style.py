@@ -107,8 +107,8 @@ html, body, .stApp {{
 }}
 /* Sidebar logout button */
 [data-testid="stSidebar"] .stButton > button {{
-  background-color: #FFFFFF !important;
-  border: 1.5px solid var(--c-sky) !important;
+  background-color: transparent !important;
+  border: 1px solid rgba(110,193,228,0.6) !important;
   color: var(--c-sky) !important;
   font-family: var(--font-primary) !important;
   font-size: 13px !important;
