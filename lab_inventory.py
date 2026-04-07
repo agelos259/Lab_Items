@@ -6,6 +6,7 @@ Entry point — run with:  python -m streamlit run lab_inventory.py
 
 import streamlit as st
 
+from style import apply_styles
 from auth import seed_admin_account
 from db import initialize_db
 from views.login import page_login
@@ -27,6 +28,7 @@ def main() -> None:
         layout="wide",
         initial_sidebar_state="expanded",
     )
+    apply_styles()
 
     # Bootstrap DB once per session
     if not st.session_state.get("_db_ready"):
