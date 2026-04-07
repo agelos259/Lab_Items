@@ -18,6 +18,17 @@ def page_add_item() -> None:
     projs = fetch_lookup("projects",  "project_id",  "project_name")
     cats  = fetch_lookup("categories","category_id", "category_name")
 
+    missing = []
+    if not cats:
+        missing.append("Categories")
+    if not locs:
+        missing.append("Locations")
+    if missing:
+        st.warning(
+            f"Please add **{' and '.join(missing)}** first via **Manage Lookups** before adding items."
+        )
+        return
+
     st.info(f"Next available ID: **{next_id}**")
 
     with st.form("add_item_form", clear_on_submit=True):
