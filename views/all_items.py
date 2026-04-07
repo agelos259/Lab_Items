@@ -69,7 +69,11 @@ def page_all_items() -> None:
             .reset_index()
         )
         st.caption(f"{len(df)} item(s) grouped into **{len(grouped)} unique name(s)**.")
-        st.dataframe(grouped, use_container_width=True, hide_index=True)
+        price_cfg = {}
+        for col in ("Unit (ex VAT)", "Unit (inc VAT)"):
+            if col in grouped.columns:
+                price_cfg[col] = st.column_config.NumberColumn(col, format="€%.2f")
+        st.dataframe(grouped, use_container_width=True, hide_index=True, column_config=price_cfg)
         return
 
     st.caption(
@@ -95,8 +99,10 @@ def page_all_items() -> None:
             "Location": st.column_config.SelectboxColumn(
                 "Location", options=loc_options, required=True
             ),
-            "Unit (ex VAT)":  st.column_config.NumberColumn("Unit (ex VAT)",  min_value=0.0, format="%.2f"),
-            "Unit (inc VAT)": st.column_config.NumberColumn("Unit (inc VAT)", min_value=0.0, format="%.2f"),
+            "Unit (ex VAT)":   st.column_config.NumberColumn("Unit (ex VAT)",   min_value=0.0, format="€%.2f"),
+            "Unit (inc VAT)":  st.column_config.NumberColumn("Unit (inc VAT)",  min_value=0.0, format="€%.2f"),
+            "Total (ex VAT)":  st.column_config.NumberColumn("Total (ex VAT)",  format="€%.2f"),
+            "Total (inc VAT)": st.column_config.NumberColumn("Total (inc VAT)", format="€%.2f"),
         },
         key="all_items_editor",
     )
