@@ -105,8 +105,10 @@ html, body, .stApp {{
   border-color: rgba(110,193,228,0.2) !important;
   margin: 0.6rem 0 !important;
 }}
-/* Sidebar logout button */
-[data-testid="stSidebar"] .stButton > button {{
+/* Sidebar logout button — must override the global button rule */
+[data-testid="stSidebar"] .stButton > button,
+[data-testid="stSidebar"] [data-testid="baseButton-secondary"],
+[data-testid="stSidebar"] [data-testid="baseButton-primary"] {{
   background-color: transparent !important;
   border: 1px solid rgba(110,193,228,0.6) !important;
   color: var(--c-sky) !important;
@@ -119,7 +121,9 @@ html, body, .stApp {{
   border-radius: 4px !important;
   box-shadow: none !important;
 }}
-[data-testid="stSidebar"] .stButton > button:hover {{
+[data-testid="stSidebar"] .stButton > button:hover,
+[data-testid="stSidebar"] [data-testid="baseButton-secondary"]:hover,
+[data-testid="stSidebar"] [data-testid="baseButton-primary"]:hover {{
   background-color: var(--c-sky) !important;
   color: #FFFFFF !important;
   border-color: var(--c-sky) !important;
