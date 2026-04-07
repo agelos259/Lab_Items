@@ -8,16 +8,16 @@ import streamlit as st
 
 from auth import seed_admin_account
 from db import initialize_db
-from pages.login import page_login
-from pages.dashboard import page_dashboard
-from pages.all_items import page_all_items
-from pages.add_item import page_add_item
-from pages.edit_item import page_edit_item
-from pages.checkout import page_checkout
-from pages.import_excel import page_import_excel
-from pages.bulk_delete import page_bulk_delete
-from pages.manage import page_manage
-from pages.accounts import page_manage_accounts
+from views.login import page_login
+from views.dashboard import page_dashboard
+from views.all_items import page_all_items
+from views.add_item import page_add_item
+from views.edit_item import page_edit_item
+from views.checkout import page_checkout
+from views.import_excel import page_import_excel
+from views.bulk_delete import page_bulk_delete
+from views.manage import page_manage
+from views.accounts import page_manage_accounts
 
 
 def main() -> None:
