@@ -19,7 +19,6 @@ from views.import_excel import page_import_excel
 from views.bulk_delete import page_bulk_delete
 from views.manage import page_manage
 from views.accounts import page_manage_accounts
-from views.assignments import page_assignments
 
 
 def main() -> None:
@@ -48,7 +47,6 @@ def main() -> None:
     viewer_pages = {
         "Dashboard":   page_dashboard,
         "All Items":   page_all_items,
-        "Assignments": page_assignments,
     }
     admin_pages = {
         "Add New Item":    page_add_item,
