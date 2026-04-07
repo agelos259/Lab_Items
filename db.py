@@ -41,6 +41,14 @@ _SCHEMA_STATEMENTS = [
         role          TEXT   NOT NULL DEFAULT 'viewer'
                       CHECK(role IN ('admin', 'viewer'))
     )""",
+    """CREATE TABLE IF NOT EXISTS import_log (
+        import_id   SERIAL PRIMARY KEY,
+        file_hash   TEXT   NOT NULL UNIQUE,
+        file_name   TEXT   NOT NULL,
+        imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        imported_by TEXT   NOT NULL,
+        row_count   INTEGER NOT NULL
+    )""",
     """CREATE TABLE IF NOT EXISTS items (
         internal_id          TEXT    PRIMARY KEY,
         item_name            TEXT    NOT NULL,

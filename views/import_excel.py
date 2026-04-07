@@ -1,3 +1,4 @@
+import hashlib
 import io
 
 import pandas as pd
@@ -42,9 +43,28 @@ def page_import_excel() -> None:
     if not uploaded:
         return
 
+    file_bytes = uploaded.read()
+    file_hash  = hashlib.sha256(file_bytes).hexdigest()
+
+    conn_check = get_connection()
+    existing = conn_check.execute(
+        "SELECT file_name, imported_at, imported_by, row_count FROM import_log WHERE file_hash = ?",
+        (file_hash,)
+    ).fetchone()
+    conn_check.close()
+
+    if existing:
+        st.error(
+            f"This file was already imported on **{existing['imported_at'].strftime('%Y-%m-%d %H:%M')}** "
+            f"by **{existing['imported_by']}** "
+            f"({existing['row_count']} rows, original name: `{existing['file_name']}`). "
+            "Upload a different file or contact an admin to allow re-import."
+        )
+        return
+
     try:
         sheet = sheet_name.strip() if sheet_name.strip() else 0
-        raw   = pd.read_excel(io.BytesIO(uploaded.read()), sheet_name=sheet,
+        raw   = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet,
                                header=int(header_row), dtype=str)
     except Exception as e:
         st.error(f"Could not read file: {e}")
@@ -154,6 +174,12 @@ def page_import_excel() -> None:
                     )
                     inserted += 1
 
+            username = st.session_state.get("auth_username", "unknown")
+            conn.execute(
+                """INSERT INTO import_log (file_hash, file_name, imported_by, row_count)
+                   VALUES (?, ?, ?, ?)""",
+                (file_hash, uploaded.name, username, inserted),
+            )
             conn.commit()
             st.success(f"Import complete: **{inserted} items created**, {skipped} rows skipped.")
             created = list(set(new_locs))
