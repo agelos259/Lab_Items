@@ -72,12 +72,10 @@ def get_next_lab_id(conn: DBConn) -> str:
 def get_or_create_location(conn: DBConn, name: str) -> int:
     name = name.strip()
     row = conn.execute(
-        "SELECT location_id FROM locations WHERE location_name = ?", (name,)
-    ).fetchone()
-    if row:
-        return row["location_id"]
-    row = conn.execute(
-        "INSERT INTO locations (location_name) VALUES (?) RETURNING location_id", (name,)
+        """INSERT INTO locations (location_name) VALUES (?)
+           ON CONFLICT (location_name) DO UPDATE SET location_name = EXCLUDED.location_name
+           RETURNING location_id""",
+        (name,)
     ).fetchone()
     return row["location_id"]
 
@@ -85,11 +83,9 @@ def get_or_create_location(conn: DBConn, name: str) -> int:
 def get_or_create_category(conn: DBConn, name: str) -> int:
     name = name.strip()
     row = conn.execute(
-        "SELECT category_id FROM categories WHERE category_name = ?", (name,)
-    ).fetchone()
-    if row:
-        return row["category_id"]
-    row = conn.execute(
-        "INSERT INTO categories (category_name) VALUES (?) RETURNING category_id", (name,)
+        """INSERT INTO categories (category_name) VALUES (?)
+           ON CONFLICT (category_name) DO UPDATE SET category_name = EXCLUDED.category_name
+           RETURNING category_id""",
+        (name,)
     ).fetchone()
     return row["category_id"]
