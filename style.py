@@ -50,10 +50,11 @@ html, body, .stApp {{
 
 /* ── Top toolbar (hamburger bar) ─────────────────────────────────────────── */
 [data-testid="stHeader"] {{
-  background-color: var(--c-dark-teal) !important;
+  background-color: #FFFFFF !important;
+  border-bottom: 1px solid var(--c-border);
 }}
 [data-testid="stHeader"] button svg {{
-  fill: #FFFFFF !important;
+  fill: var(--c-navy) !important;
 }}
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
