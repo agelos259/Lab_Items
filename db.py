@@ -62,22 +62,6 @@ _SCHEMA_STATEMENTS = [
     )""",
 ]
 
-_SEED_STATEMENTS = [
-    """INSERT INTO locations (location_name) VALUES
-        ('Main Lab - Room 101'),('Storage Room B'),
-        ('Minus 80 Freezer'),('Off-Site / Home'),('Server Room')
-    ON CONFLICT DO NOTHING""",
-    """INSERT INTO users (name, role, email) VALUES
-        ('Dr. Alice Nguyen','Principal Investigator','alice.nguyen@lab.edu'),
-        ('Bob Martinez','Research Assistant','bob.martinez@lab.edu'),
-        ('Carol Smith','Lab Manager','carol.smith@lab.edu'),
-        ('David Chen','PhD Student','david.chen@lab.edu')
-    ON CONFLICT DO NOTHING""",
-    """INSERT INTO categories (category_name) VALUES
-        ('Capital Equipment'),('Electronics/Sensors'),
-        ('IT/Computing'),('Tools/Hardware'),('Consumables')
-    ON CONFLICT DO NOTHING""",
-]
 
 
 # ── Connection wrapper ────────────────────────────────────────────────────────
@@ -133,16 +117,10 @@ def get_connection() -> DBConn:
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 def initialize_db() -> None:
-    """Create tables if they don't exist and seed lookup data on first run."""
+    """Create tables if they don't exist."""
     conn = get_connection()
     cur = conn.raw.cursor()
     for stmt in _SCHEMA_STATEMENTS:
         cur.execute(stmt)
     conn.commit()
-
-    if conn.scalar("SELECT COUNT(*) FROM locations") == 0:
-        for stmt in _SEED_STATEMENTS:
-            conn.raw.cursor().execute(stmt)
-        conn.commit()
-
     conn.close()

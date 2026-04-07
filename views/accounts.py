@@ -12,7 +12,7 @@ def page_manage_accounts() -> None:
     st.title("Manage Login Accounts")
 
     accounts = fetch_df(
-        "SELECT account_id AS ID, username AS Username, role AS Role "
+        'SELECT account_id AS "ID", username AS "Username", role AS "Role" '
         "FROM login_accounts ORDER BY username"
     )
     st.dataframe(accounts, use_container_width=True, hide_index=True)
