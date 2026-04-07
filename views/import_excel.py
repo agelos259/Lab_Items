@@ -10,24 +10,46 @@ from db import get_connection
 from queries import fetch_lookup, get_next_lab_id, get_or_create_location, get_or_create_category
 
 
+def _parse_qty(val):
+    try:
+        return max(int(float(str(val).strip())), 1)
+    except (ValueError, TypeError):
+        return 1
+
+
+def _to_float(val):
+    try:
+        return float(str(val).replace(",", ".").strip())
+    except (ValueError, TypeError):
+        return None
+
+
+def _sheet_hash(file_bytes: bytes, sheet_name: str) -> str:
+    """Hash is per file+sheet so the same file can be re-uploaded for a different sheet."""
+    return hashlib.sha256(file_bytes + b"::" + sheet_name.encode()).hexdigest()
+
+
+def _load_sheet(file_bytes: bytes, sheet_name: str, header_row: int):
+    raw = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name,
+                        header=header_row, dtype=str)
+    raw.columns = [str(c).strip() for c in raw.columns]
+    rename_map = {orig: mapped for orig, mapped in EXCEL_COL_MAP.items() if orig in raw.columns}
+    df = raw.rename(columns=rename_map)
+    if "item_name" not in df.columns:
+        return None, list(raw.columns)
+    df = df[df["item_name"].notna() & (df["item_name"].astype(str).str.strip() != "")]
+    df = df[df["item_name"].astype(str).str.strip() != "nan"]
+    return df, None
+
+
 def page_import_excel() -> None:
     st.title("Import from Excel")
 
-    st.subheader("Step 1 — Select Project")
     projs = fetch_lookup("projects", "project_id", "project_name")
     if not projs:
         st.error("No projects found. Please add a project first via Manage Lookups.")
         return
-    proj_options = ["— Select a project —"] + list(projs.values())
-    proj_label   = st.selectbox("Project this equipment belongs to *", proj_options)
-    if proj_label == "— Select a project —":
-        st.info("Select a project above to continue.")
-        return
-    proj_id = [k for k, v in projs.items() if v == proj_label][0]
-    st.success(f"Project: **{proj_label}**")
-    st.divider()
 
-    st.subheader("Step 2 — Upload Excel File")
     st.caption(
         "Expected columns (Greek headers): "
         "**A/A · ΕΙΔΟΣ · ΜΟΝΤΕΛΟ · ΤΕΜΑΧΙΑ · S/N · "
@@ -35,155 +57,202 @@ def page_import_excel() -> None:
         "ΤΙΜΗ ΠΟΣΟΤΗΤΑΣ ΧΩΡΙΣ ΦΠΑ · ΤΙΜΗ ΠΟΣΟΤΗΤΑΣ ΜΕ ΦΠΑ · "
         "ΠΑΡΑΛΑΒΗ (ΝΑΙ/ ΟΧΙ) · ΤΟΠΟΘΕΣΙΑ**"
     )
-    with st.expander("Advanced parse options", expanded=False):
-        header_row = st.number_input("Header row (0 = first row)", min_value=0, max_value=10, value=0, step=1)
-        sheet_name = st.text_input("Sheet name (leave blank for first sheet)", value="")
 
     uploaded = st.file_uploader("Choose an .xlsx or .xls file", type=["xlsx", "xls"])
     if not uploaded:
         return
 
     file_bytes = uploaded.read()
-    file_hash  = hashlib.sha256(file_bytes).hexdigest()
-
-    conn_check = get_connection()
-    existing = conn_check.execute(
-        "SELECT file_name, imported_at, imported_by, row_count FROM import_log WHERE file_hash = ?",
-        (file_hash,)
-    ).fetchone()
-    conn_check.close()
-
-    if existing:
-        st.error(
-            f"This file was already imported on **{existing['imported_at'].strftime('%Y-%m-%d %H:%M')}** "
-            f"by **{existing['imported_by']}** "
-            f"({existing['row_count']} rows, original name: `{existing['file_name']}`). "
-            "Upload a different file or contact an admin to allow re-import."
-        )
-        return
 
     try:
-        sheet = sheet_name.strip() if sheet_name.strip() else 0
-        raw   = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet,
-                               header=int(header_row), dtype=str)
+        xl = pd.ExcelFile(io.BytesIO(file_bytes))
+        sheet_names = xl.sheet_names
     except Exception as e:
         st.error(f"Could not read file: {e}")
         return
 
-    raw.columns = [str(c).strip() for c in raw.columns]
-    rename_map  = {orig: mapped for orig, mapped in EXCEL_COL_MAP.items() if orig in raw.columns}
-    df          = raw.rename(columns=rename_map)
-
-    if "item_name" not in df.columns:
-        st.error(f"Column ΜΟΝΤΕΛΟ not found. Detected: {', '.join(raw.columns.tolist())}")
-        return
-
-    df = df[df["item_name"].notna() & (df["item_name"].astype(str).str.strip() != "")]
-    df = df[df["item_name"].astype(str).str.strip() != "nan"]
-    if df.empty:
-        st.warning("No data rows found after filtering empty product names.")
-        return
-
-    def _parse_qty(val):
-        try:
-            return max(int(float(str(val).strip())), 1)
-        except (ValueError, TypeError):
-            return 1
-
-    total_instances = sum(_parse_qty(r.get("quantity", 1)) for _, r in df.iterrows())
-    st.success(f"Parsed **{len(df)} rows** → will create **{total_instances} individual items**.")
+    st.success(f"Found **{len(sheet_names)} sheet(s)**: {', '.join(sheet_names)}")
     st.divider()
 
-    default_cat  = None
-    default_cond = CONDITIONS[0]
+    # Check which sheets were already imported
+    conn_check = get_connection()
+    import_status = {}
+    for sheet in sheet_names:
+        h = _sheet_hash(file_bytes, sheet)
+        row = conn_check.execute(
+            "SELECT imported_at, imported_by, row_count FROM import_log WHERE file_hash = ?",
+            (h,)
+        ).fetchone()
+        import_status[sheet] = row  # None if not yet imported
+    conn_check.close()
 
-    st.subheader("Step 3 — Preview")
-    preview_cols = [c for c in [
-        "excel_category", "item_name", "quantity", "manufacturer_sn",
-        "received", "location_name",
-        "unit_price_ex_vat", "unit_price_inc_vat",
-        "total_price_ex_vat", "total_price_inc_vat",
-    ] if c in df.columns]
-    st.dataframe(
-        df[preview_cols].rename(columns={
-            "excel_category": "Category (ΕΙΔΟΣ)", "item_name": "Product Name (ΜΟΝΤΕΛΟ)"
-        }).head(20),
-        use_container_width=True, hide_index=True,
-    )
-    if len(df) > 20:
-        st.caption(f"Showing 20 of {len(df)} rows.")
-    st.divider()
+    proj_labels = list(projs.values())
+    sheet_configs = {}
 
-    st.subheader("Step 4 — Import")
-    st.markdown(f"Ready to create **{total_instances} items** into project **{proj_label}**.")
+    for sheet in sheet_names:
+        already = import_status[sheet]
+        label = f"Sheet: **{sheet}**"
+        if already:
+            label += f"  ·  *already imported {already['imported_at'].strftime('%Y-%m-%d')} by {already['imported_by']}*"
 
-    if st.button("Import All Rows into Database", type="primary"):
-        conn     = get_connection()
-        inserted = 0
-        skipped  = 0
-        new_locs: list[str] = []
+        with st.expander(label, expanded=(already is None)):
+            if already:
+                st.warning(
+                    f"Imported on **{already['imported_at'].strftime('%Y-%m-%d %H:%M')}** "
+                    f"by **{already['imported_by']}** ({already['row_count']} items)."
+                )
+                include = st.checkbox("Import again anyway", key=f"inc_{sheet}", value=False)
+            else:
+                include = st.checkbox("Include this sheet", key=f"inc_{sheet}", value=True)
 
-        def to_float(val):
-            try:
-                return float(str(val).replace(",", ".").strip())
-            except (ValueError, TypeError):
-                return None
+            if not include:
+                sheet_configs[sheet] = {"include": False}
+                continue
 
-        try:
-            for _, r in df.iterrows():
-                name = str(r.get("item_name", "")).strip()
-                if not name or name == "nan":
-                    skipped += 1
-                    continue
-                cat_raw  = str(r.get("excel_category", "")).strip()
-                category = cat_raw if (cat_raw and cat_raw != "nan") else default_cat
-                cat_id   = get_or_create_category(conn, category)
-
-                loc_raw = str(r.get("location_name", "")).strip()
-                if loc_raw and loc_raw != "nan":
-                    loc_id = get_or_create_location(conn, loc_raw)
-                    new_locs.append(loc_raw)
-                else:
-                    loc_id = conn.execute(
-                        "SELECT location_id FROM locations LIMIT 1"
-                    ).fetchone()["location_id"]
-
-                sn       = str(r.get("manufacturer_sn", "")).strip() or None
-                received = str(r.get("received", "")).strip() or None
-                qty      = _parse_qty(r.get("quantity", 1))
-
-                for _ in range(qty):
-                    new_id = get_next_lab_id(conn)
-                    conn.execute(
-                        """INSERT INTO items
-                           (internal_id, item_name, category, category_id, manufacturer_sn,
-                            quantity, condition, received,
-                            unit_price_ex_vat, unit_price_inc_vat,
-                            total_price_ex_vat, total_price_inc_vat,
-                            project_id, location_id)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (new_id, name, category, cat_id, sn, 1, default_cond, received,
-                         to_float(r.get("unit_price_ex_vat")),
-                         to_float(r.get("unit_price_inc_vat")),
-                         to_float(r.get("total_price_ex_vat")),
-                         to_float(r.get("total_price_inc_vat")),
-                         proj_id, loc_id),
-                    )
-                    inserted += 1
-
-            username = st.session_state.get("auth_username", "unknown")
-            conn.execute(
-                """INSERT INTO import_log (file_hash, file_name, imported_by, row_count)
-                   VALUES (?, ?, ?, ?)""",
-                (file_hash, uploaded.name, username, inserted),
+            col1, col2 = st.columns(2)
+            proj_label = col1.selectbox("Project", proj_labels, key=f"proj_{sheet}")
+            proj_id = [k for k, v in projs.items() if v == proj_label][0]
+            header_row = col2.number_input(
+                "Header row (0 = first row)", min_value=0, max_value=10,
+                value=0, step=1, key=f"hdr_{sheet}"
             )
-            conn.commit()
-            st.success(f"Import complete: **{inserted} items created**, {skipped} rows skipped.")
-            created = list(set(new_locs))
-            if created:
-                st.info(f"New locations auto-created: {', '.join(created)}")
+
+            try:
+                df, bad_cols = _load_sheet(file_bytes, sheet, int(header_row))
+            except Exception as e:
+                st.error(f"Could not parse sheet: {e}")
+                sheet_configs[sheet] = {"include": False}
+                continue
+
+            if df is None:
+                st.error(f"Column ΜΟΝΤΕΛΟ not found. Detected: {', '.join(bad_cols)}")
+                sheet_configs[sheet] = {"include": False}
+                continue
+
+            if df.empty:
+                st.warning("No data rows found after filtering.")
+                sheet_configs[sheet] = {"include": False}
+                continue
+
+            total = sum(_parse_qty(r.get("quantity", 1)) for _, r in df.iterrows())
+            st.caption(f"{len(df)} rows → **{total} items** will be created")
+
+            preview_cols = [c for c in [
+                "excel_category", "item_name", "quantity", "manufacturer_sn",
+                "received", "location_name",
+            ] if c in df.columns]
+            st.dataframe(
+                df[preview_cols].rename(columns={
+                    "excel_category": "Category", "item_name": "Product Name"
+                }).head(10),
+                use_container_width=True, hide_index=True,
+            )
+            if len(df) > 10:
+                st.caption(f"Showing 10 of {len(df)} rows.")
+
+            sheet_configs[sheet] = {
+                "include": True, "proj_id": proj_id,
+                "proj_label": proj_label, "df": df,
+            }
+
+    to_import = [s for s, cfg in sheet_configs.items() if cfg.get("include")]
+    if not to_import:
+        return
+
+    st.divider()
+    total_items = sum(
+        sum(_parse_qty(r.get("quantity", 1)) for _, r in sheet_configs[s]["df"].iterrows())
+        for s in to_import
+    )
+    st.markdown(
+        f"Ready to import **{len(to_import)} sheet(s)** → **{total_items} items total**.\n\n"
+        + "\n".join(
+            f"- **{s}** → project *{sheet_configs[s]['proj_label']}*"
+            for s in to_import
+        )
+    )
+
+    if st.button("Import Selected Sheets", type="primary"):
+        conn = get_connection()
+        username = st.session_state.get("auth_username", "unknown")
+        grand_inserted = 0
+        grand_skipped = 0
+
+        try:
+            for sheet in to_import:
+                cfg = sheet_configs[sheet]
+                df = cfg["df"]
+                proj_id = cfg["proj_id"]
+                inserted = 0
+                skipped = 0
+
+                # Check location fallback once per sheet
+                fallback_loc = conn.execute(
+                    "SELECT location_id FROM locations LIMIT 1"
+                ).fetchone()
+                fallback_loc_id = fallback_loc["location_id"] if fallback_loc else None
+
+                for _, r in df.iterrows():
+                    name = str(r.get("item_name", "")).strip()
+                    if not name or name == "nan":
+                        skipped += 1
+                        continue
+
+                    cat_raw = str(r.get("excel_category", "")).strip()
+                    if cat_raw and cat_raw != "nan":
+                        cat_id = get_or_create_category(conn, cat_raw)
+                        category = cat_raw
+                    else:
+                        cat_id = None
+                        category = None
+
+                    loc_raw = str(r.get("location_name", "")).strip()
+                    if loc_raw and loc_raw != "nan":
+                        loc_id = get_or_create_location(conn, loc_raw)
+                    elif fallback_loc_id:
+                        loc_id = fallback_loc_id
+                    else:
+                        skipped += 1
+                        continue
+
+                    sn = str(r.get("manufacturer_sn", "")).strip() or None
+                    received = str(r.get("received", "")).strip() or None
+                    qty = _parse_qty(r.get("quantity", 1))
+
+                    for _ in range(qty):
+                        new_id = get_next_lab_id(conn)
+                        conn.execute(
+                            """INSERT INTO items
+                               (internal_id, item_name, category, category_id, manufacturer_sn,
+                                quantity, condition, received,
+                                unit_price_ex_vat, unit_price_inc_vat,
+                                total_price_ex_vat, total_price_inc_vat,
+                                project_id, location_id)
+                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (new_id, name, category, cat_id, sn, 1, CONDITIONS[0], received,
+                             _to_float(r.get("unit_price_ex_vat")),
+                             _to_float(r.get("unit_price_inc_vat")),
+                             _to_float(r.get("total_price_ex_vat")),
+                             _to_float(r.get("total_price_inc_vat")),
+                             proj_id, loc_id),
+                        )
+                        inserted += 1
+
+                conn.execute(
+                    "INSERT INTO import_log (file_hash, file_name, imported_by, row_count) VALUES (?,?,?,?)",
+                    (_sheet_hash(file_bytes, sheet), f"{uploaded.name} [{sheet}]", username, inserted),
+                )
+                conn.commit()
+                grand_inserted += inserted
+                grand_skipped += skipped
+
         except psycopg2.Error as e:
             conn.rollback()
             st.error(f"Database error (rolled back): {e}")
+        else:
+            st.success(
+                f"Import complete: **{grand_inserted} items created** across "
+                f"{len(to_import)} sheet(s), {grand_skipped} rows skipped."
+            )
         finally:
             conn.close()
