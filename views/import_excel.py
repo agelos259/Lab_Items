@@ -29,6 +29,15 @@ def _sheet_hash(file_bytes: bytes, sheet_name: str) -> str:
     return hashlib.sha256(file_bytes + b"::" + sheet_name.encode()).hexdigest()
 
 
+# Column-index fallback for price columns (F=5, G=6, H=7, I=8, zero-indexed)
+_PRICE_COL_POSITIONS = {
+    5: "unit_price_ex_vat",
+    6: "unit_price_inc_vat",
+    7: "total_price_ex_vat",
+    8: "total_price_inc_vat",
+}
+
+
 def _load_sheet(file_bytes: bytes, sheet_name: str, header_row: int):
     raw = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name,
                         header=header_row, dtype=str)
@@ -37,6 +46,12 @@ def _load_sheet(file_bytes: bytes, sheet_name: str, header_row: int):
     df = raw.rename(columns=rename_map)
     if "item_name" not in df.columns:
         return None, list(raw.columns)
+
+    # Fall back to column position for price columns not matched by header name
+    for pos, field in _PRICE_COL_POSITIONS.items():
+        if field not in df.columns and pos < len(df.columns):
+            df = df.rename(columns={df.columns[pos]: field})
+
     df = df[df["item_name"].notna() & (df["item_name"].astype(str).str.strip() != "")]
     df = df[df["item_name"].astype(str).str.strip() != "nan"]
     return df, None
