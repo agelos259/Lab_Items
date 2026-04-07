@@ -1,9 +1,9 @@
 import streamlit as st
 import psycopg2
 
-from config import CONDITIONS, CATEGORIES
+from config import CONDITIONS
 from db import get_connection
-from queries import fetch_df, ITEMS_FULL_QUERY
+from queries import fetch_df, fetch_lookup, ITEMS_FULL_QUERY
 
 
 def _bulk_delete_panel(
@@ -102,10 +102,11 @@ def page_bulk_delete() -> None:
     )
 
     with tab_items:
+        db_cats     = list(fetch_lookup("categories", "category_id", "category_name").values())
         c1, c2, c3  = st.columns([3, 2, 2])
         search      = c1.text_input("Search name / model / ID", "", key="bd_search")
         cond_filter = c2.selectbox("Condition", ["All"] + CONDITIONS, key="bd_cond")
-        cat_filter  = c3.selectbox("Category",  ["All"] + CATEGORIES, key="bd_cat")
+        cat_filter  = c3.selectbox("Category",  ["All"] + db_cats, key="bd_cat")
         query  = ITEMS_FULL_QUERY + " WHERE 1=1"
         params: list = []
         if search:
