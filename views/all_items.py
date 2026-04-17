@@ -53,12 +53,18 @@ def page_all_items() -> None:
             vals = sorted({v for v in s if v and v != "—"})
             return ", ".join(vals) if vals else "—"
 
+        def _single_location(s):
+            vals = sorted({v for v in s if v and v != "—"})
+            return vals[0] if len(vals) == 1 else None
+
+        loc_options_grouped = list(locs.values())
+
         grouped = (
             df.groupby("Item Name", sort=False)
             .agg(
                 Category   = ("Category",        "first"),
                 Count      = ("Item Name",        "count"),
-                Locations  = ("Location",         _join_unique),
+                Location   = ("Location",         _single_location),
                 Projects   = ("Project",          _join_unique),
                 Conditions = ("Condition",        _join_unique),
                 **({
@@ -68,12 +74,63 @@ def page_all_items() -> None:
             )
             .reset_index()
         )
-        st.caption(f"{len(df)} item(s) grouped into **{len(grouped)} unique name(s)**.")
+        st.caption(
+            f"{len(df)} item(s) grouped into **{len(grouped)} unique name(s)**. "
+            "Edit **Location** to move all items of that name at once."
+        )
         price_cfg = {}
         for col in ("Unit (ex VAT)", "Unit (inc VAT)"):
             if col in grouped.columns:
                 price_cfg[col] = st.column_config.NumberColumn(col, format="€%.2f")
-        st.dataframe(grouped, use_container_width=True, hide_index=True, column_config=price_cfg)
+
+        readonly_grouped = {
+            c: st.column_config.TextColumn(c, disabled=True)
+            for c in grouped.columns
+            if c != "Location"
+        }
+
+        edited_grouped = st.data_editor(
+            grouped,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                **readonly_grouped,
+                **price_cfg,
+                "Location": st.column_config.SelectboxColumn(
+                    "Location", options=loc_options_grouped, required=False
+                ),
+            },
+            key="grouped_editor",
+        )
+
+        # Detect Location changes and bulk-update all items with that name
+        loc_changed = [
+            i for i in range(len(grouped))
+            if grouped.iloc[i]["Location"] != edited_grouped.iloc[i]["Location"]
+            and edited_grouped.iloc[i]["Location"]
+        ]
+        if loc_changed:
+            conn = get_connection()
+            saved = 0
+            try:
+                for i in loc_changed:
+                    item_name = edited_grouped.iloc[i]["Item Name"]
+                    new_loc   = edited_grouped.iloc[i]["Location"]
+                    loc_id    = [k for k, v in locs.items() if v == new_loc][0]
+                    conn.execute(
+                        "UPDATE items SET location_id=? WHERE item_name=?",
+                        (loc_id, item_name),
+                    )
+                    saved += 1
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                st.error(f"Database error: {e}")
+            finally:
+                conn.close()
+            if saved:
+                st.success(f"Updated location for {saved} group(s).")
+                st.rerun()
         return
 
     st.caption(
