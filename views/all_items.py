@@ -10,17 +10,29 @@ from queries import fetch_df, fetch_lookup, ITEMS_FULL_QUERY
 def page_all_items() -> None:
     st.title("All Items")
 
-    projs    = fetch_lookup("projects",   "project_id",  "project_name")
-    cats_df  = fetch_df("SELECT category_name FROM categories ORDER BY category_name")
-    cat_list = cats_df["category_name"].tolist() if not cats_df.empty else []
-    locs     = fetch_lookup("locations", "location_id", "location_name")
-    users    = fetch_lookup("users",     "user_id",     "name")
+    projs = fetch_lookup("projects",   "project_id",  "project_name")
+    locs  = fetch_lookup("locations", "location_id", "location_name")
+    users = fetch_lookup("users",     "user_id",     "name")
 
     c1, c2, c3, c4 = st.columns([3, 2, 2, 2])
     search      = c1.text_input("Search by name, model or ID", "")
     proj_filter = c2.selectbox("Filter by project",   ["All"] + list(projs.values()))
     cond_filter = c3.selectbox("Filter by condition", ["All"] + CONDITIONS)
-    cat_filter  = c4.selectbox("Filter by category",  ["All"] + cat_list)
+
+    if proj_filter != "All":
+        proj_id_for_cats = [k for k, v in projs.items() if v == proj_filter][0]
+        cats_df = fetch_df(
+            "SELECT DISTINCT COALESCE(cat.category_name, i.category) AS category_name "
+            "FROM items i "
+            "LEFT JOIN categories cat ON cat.category_id = i.category_id "
+            "WHERE i.project_id = ? AND COALESCE(cat.category_name, i.category) IS NOT NULL "
+            "ORDER BY 1",
+            (proj_id_for_cats,),
+        )
+    else:
+        cats_df = fetch_df("SELECT category_name FROM categories ORDER BY category_name")
+    cat_list   = cats_df["category_name"].tolist() if not cats_df.empty else []
+    cat_filter = c4.selectbox("Filter by category", ["All"] + cat_list)
 
     query  = ITEMS_FULL_QUERY + " WHERE 1=1"
     params: list = []
